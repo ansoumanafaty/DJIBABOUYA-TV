@@ -3,7 +3,12 @@
   "name":"djibabouya-tv",
   "main":"worker.js",
   "compatibility_date":"2026-09-08",
-  "assets":{"directory":"./public","binding":"ASSETS","html_handling":"none"},
+  "assets":{
+  "directory":"./public",
+  "binding":"ASSETS",
+  "html_handling":"auto-trailing-slash",
+  "not_found_handling":"single-page-application"
+},
   "d1_databases": [{
     "binding": "DB",
     "database_name": "djibabouya-tv-db",
