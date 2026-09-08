@@ -4,7 +4,11 @@
   "main":"worker.js",
   "compatibility_date":"2026-09-08",
   "assets":{"directory":"./public","binding":"ASSETS","html_handling":"auto"},
-  "d1_databases":[{"binding":"DB","database_name":"djibabouya-tv-db","database_id":"REPLACE_WITH_YOUR_D1_DATABASE_ID"}],
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "djibabouya-tv-db",
+    "database_id": "6c3b471a-3220-4c24-a159-55634d231310"
+}],
   "durable_objects":{"bindings":[{"name":"ROOM","class_name":"Room"}]},
   "migrations":[{"tag":"v1","new_sqlite_classes":["Room"]}]
 }
