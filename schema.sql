@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY CHECK(id=1), state_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS admin_sessions (token TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS stream_config (id INTEGER PRIMARY KEY CHECK(id=1), live_input_id TEXT, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS media_files (id TEXT PRIMARY KEY, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_admin_expiry ON admin_sessions(expires_at);

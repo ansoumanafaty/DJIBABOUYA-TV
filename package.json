@@ -1,0 +1,8 @@
+{
+  "name":"djibabouya-tv",
+  "version":"1.0.0",
+  "private":true,
+  "description":"DJIBABOUYA TV — régie football temps réel sur Cloudflare",
+  "scripts":{"dev":"wrangler dev","deploy":"wrangler deploy","db:init":"wrangler d1 execute djibabouya-tv-db --remote --file=schema.sql"},
+  "devDependencies":{"wrangler":"^4.38.0"}
+}
