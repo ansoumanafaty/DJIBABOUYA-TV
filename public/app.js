@@ -6,11 +6,11 @@ let ws = null;
 let clockTimer = null;
 let reconnectTimer = null;
 
-const deep = x => JSON.parse(JSON.stringify(x));
-
 /* =========================
-   AFFICHAGE DES ERREURS
+   OUTILS
 ========================= */
+
+const deep = x => JSON.parse(JSON.stringify(x));
 
 function showError(message) {
   console.error('[DJIBABOUYA TV]', message);
@@ -45,6 +45,7 @@ function showError(message) {
   box.style.display = 'block';
 
   clearTimeout(box._timer);
+
   box._timer = setTimeout(() => {
     box.style.display = 'none';
   }, 7000);
@@ -83,6 +84,7 @@ function showSuccess(message) {
   box.style.display = 'block';
 
   clearTimeout(box._timer);
+
   box._timer = setTimeout(() => {
     box.style.display = 'none';
   }, 3000);
@@ -97,10 +99,6 @@ const api = async (path, opt = {}) => {
     ...(opt.headers || {})
   };
 
-  /*
-   * Le token est envoyé uniquement s'il existe.
-   * Cela évite d'envoyer un header vide.
-   */
   if (token) {
     headers['x-admin-token'] = token;
   }
@@ -117,27 +115,33 @@ const api = async (path, opt = {}) => {
     throw new Error('Impossible de contacter le serveur.');
   }
 
-  const contentType = response.headers.get('content-type') || '';
+  const contentType =
+    response.headers.get('content-type') || '';
 
   let data = {};
 
   if (contentType.includes('application/json')) {
     data = await response.json().catch(() => ({}));
   } else {
-    const text = await response.text().catch(() => '');
-    data = text ? { error: text } : {};
+    const text =
+      await response.text().catch(() => '');
+
+    data = text
+      ? { error: text }
+      : {};
   }
 
   if (!response.ok) {
     if (response.status === 401) {
-      /*
-       * Si Cloudflare refuse le token,
-       * on supprime le token local.
-       */
       token = '';
-      sessionStorage.removeItem('djibabouya-token');
+
+      sessionStorage.removeItem(
+        'djibabouya-token'
+      );
+
       throw new Error(
-        data.error || 'Session Admin invalide. Veuillez vous reconnecter.'
+        data.error ||
+        'Session Admin invalide. Veuillez vous reconnecter.'
       );
     }
 
@@ -162,12 +166,23 @@ async function boot() {
     connectWS();
 
     setInterval(refreshLive, 10000);
+
     refreshLive();
 
-    console.log('DJIBABOUYA TV : application démarrée.');
+    console.log(
+      'DJIBABOUYA TV : application démarrée.'
+    );
+
   } catch (e) {
-    $('connection').textContent = '● Erreur de démarrage';
+    const connection = $('connection');
+
+    if (connection) {
+      connection.textContent =
+        '● Erreur de démarrage';
+    }
+
     showError(e.message);
+
     console.error(e);
   }
 }
@@ -188,40 +203,88 @@ function connectWS() {
     } catch {}
   }
 
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const proto =
+    location.protocol === 'https:'
+      ? 'wss'
+      : 'ws';
 
   try {
     ws = new WebSocket(
       `${proto}://${location.host}/ws`
     );
+
   } catch (e) {
-    $('connection').textContent = '● WebSocket indisponible';
+    const connection = $('connection');
+
+    if (connection) {
+      connection.textContent =
+        '● WebSocket indisponible';
+    }
+
     scheduleReconnect();
+
     return;
   }
 
-  $('connection').textContent = '● Connexion temps réel…';
+  const connection = $('connection');
+
+  if (connection) {
+    connection.textContent =
+      '● Connexion temps réel…';
+  }
 
   ws.onopen = () => {
-    $('connection').textContent =
-      '● Synchronisé en temps réel';
+    if (connection) {
+      connection.textContent =
+        '● Synchronisé en temps réel';
+    }
   };
 
   ws.onmessage = e => {
     try {
       const d = JSON.parse(e.data);
 
-      if (d.type === 'state' && d.state) {
-        S = d.state;
-        render();
+      if (
+        d.type === 'state' &&
+        d.state
+      ) {
+        const incoming = d.state;
+
+        const currentTime =
+          Number(S?.updatedAt || 0);
+
+        const incomingTime =
+          Number(incoming.updatedAt || 0);
+
+        /*
+         * IMPORTANT :
+         * un ancien état ne doit jamais
+         * remplacer un état plus récent.
+         */
+        if (
+          incomingTime >= currentTime
+        ) {
+          S = incoming;
+          render();
+        }
       }
+
     } catch (err) {
-      console.error('Erreur WebSocket:', err);
+      console.error(
+        'Erreur WebSocket:',
+        err
+      );
     }
   };
 
   ws.onclose = () => {
-    $('connection').textContent = '● Reconnexion…';
+    const connection = $('connection');
+
+    if (connection) {
+      connection.textContent =
+        '● Reconnexion…';
+    }
+
     scheduleReconnect();
   };
 
@@ -247,7 +310,9 @@ function scheduleReconnect() {
 
 async function publish(mutator) {
   if (!token) {
-    const message = 'Connectez-vous à l’Admin avant de modifier le direct.';
+    const message =
+      'Connectez-vous à l’Admin avant de modifier le direct.';
+
     showError(message);
 
     try {
@@ -258,8 +323,11 @@ async function publish(mutator) {
   }
 
   if (!S) {
-    const message = 'État du direct indisponible.';
+    const message =
+      'État du direct indisponible.';
+
     showError(message);
+
     throw new Error(message);
   }
 
@@ -268,17 +336,32 @@ async function publish(mutator) {
   try {
     await mutator(n);
 
-    const d = await api('/api/state', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        state: n
-      })
-    });
+    /*
+     * On donne immédiatement une nouvelle
+     * date à l'état local.
+     */
+    n.updatedAt = Date.now();
 
-    if (!d || !d.state) {
+    const d = await api(
+      '/api/state',
+      {
+        method: 'POST',
+
+        headers: {
+          'content-type':
+            'application/json'
+        },
+
+        body: JSON.stringify({
+          state: n
+        })
+      }
+    );
+
+    if (
+      !d ||
+      !d.state
+    ) {
       throw new Error(
         'Le serveur n’a pas renvoyé le nouvel état.'
       );
@@ -291,7 +374,11 @@ async function publish(mutator) {
     return d.state;
 
   } catch (e) {
-    showError(e.message || 'Impossible d’enregistrer la modification.');
+    showError(
+      e.message ||
+      'Impossible d’enregistrer la modification.'
+    );
+
     throw e;
   }
 }
@@ -303,29 +390,51 @@ async function publish(mutator) {
 function elapsed() {
   if (!S) return 0;
 
-  let x = Number(S.elapsed) || 0;
+  let x =
+    Number(S.elapsed) || 0;
 
-  if (S.running && S.startedAt) {
-    x += (Date.now() - S.startedAt) / 1000;
+  if (
+    S.running &&
+    S.startedAt
+  ) {
+    x +=
+      (Date.now() -
+        S.startedAt) /
+      1000;
   }
 
-  return Math.max(0, Math.floor(x));
+  return Math.max(
+    0,
+    Math.floor(x)
+  );
 }
 
 function extraElapsed() {
   if (!S) return 0;
 
-  let x = Number(S.extraElapsed) || 0;
+  let x =
+    Number(S.extraElapsed) || 0;
 
-  if (S.extraRunning && S.extraStartedAt) {
-    x += (Date.now() - S.extraStartedAt) / 1000;
+  if (
+    S.extraRunning &&
+    S.extraStartedAt
+  ) {
+    x +=
+      (Date.now() -
+        S.extraStartedAt) /
+      1000;
   }
 
-  return Math.max(0, Math.floor(x));
+  return Math.max(
+    0,
+    Math.floor(x)
+  );
 }
 
 const fmt = x =>
-  `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(
+  `${String(
+    Math.floor(x / 60)
+  ).padStart(2, '0')}:${String(
     Math.max(0, x % 60)
   ).padStart(2, '0')}`;
 
@@ -333,19 +442,26 @@ const fmt = x =>
    PUBLICATIONS TEMPORISÉES
 ========================= */
 
-function timed(obj, key) {
+function timed(obj) {
   if (!obj) return false;
 
   if (!obj.visible) {
     return false;
   }
 
-  if (!obj.startedAt || !obj.duration) {
+  if (
+    !obj.startedAt ||
+    !obj.duration
+  ) {
     return true;
   }
 
-  return Date.now() - obj.startedAt <
-    Number(obj.duration) * 1000;
+  return (
+    Date.now() -
+      obj.startedAt <
+    Number(obj.duration) *
+      1000
+  );
 }
 
 /* =========================
@@ -365,62 +481,144 @@ function render() {
       S.backgroundMode || 'cover';
   }
 
-  $('homeName').textContent =
-    S.home?.name || 'A';
+  const homeName =
+    $('homeName');
 
-  $('awayName').textContent =
-    S.away?.name || 'B';
+  const awayName =
+    $('awayName');
 
-  $('score').textContent =
-    `${Number(S.home?.score) || 0} - ${Number(S.away?.score) || 0}`;
+  const score =
+    $('score');
 
-  $('homeBox').style.background =
-    S.home?.color || '#0b63ce';
+  const homeBox =
+    $('homeBox');
 
-  $('awayBox').style.background =
-    S.away?.color || '#d4a800';
+  const awayBox =
+    $('awayBox');
 
-  $('homeBox').style.color =
-    S.home?.text || '#ffffff';
+  if (homeName) {
+    homeName.textContent =
+      S.home?.name || 'A';
+  }
 
-  $('awayBox').style.color =
-    S.away?.text || '#111111';
+  if (awayName) {
+    awayName.textContent =
+      S.away?.name || 'B';
+  }
 
-  for (const [id, url] of [
-    ['homeLogo', S.home?.logo],
-    ['awayLogo', S.away?.logo]
-  ]) {
+  if (score) {
+    score.textContent =
+      `${Number(S.home?.score) || 0} - ${
+        Number(S.away?.score) || 0
+      }`;
+  }
+
+  if (homeBox) {
+    homeBox.style.background =
+      S.home?.color ||
+      '#0b63ce';
+
+    homeBox.style.color =
+      S.home?.text ||
+      '#ffffff';
+  }
+
+  if (awayBox) {
+    awayBox.style.background =
+      S.away?.color ||
+      '#d4a800';
+
+    awayBox.style.color =
+      S.away?.text ||
+      '#111111';
+  }
+
+  for (
+    const [id, url] of [
+      ['homeLogo', S.home?.logo],
+      ['awayLogo', S.away?.logo]
+    ]
+  ) {
     const e = $(id);
 
     if (!e) continue;
 
     e.src = url || '';
-    e.style.display = url ? 'block' : 'none';
+
+    e.style.display =
+      url
+        ? 'block'
+        : 'none';
   }
 
-  $('scoreboard').hidden =
-    !S.scoreboardVisible;
+  const scoreboard =
+    $('scoreboard');
 
-  $('clock').textContent =
-    fmt(elapsed());
+  if (scoreboard) {
+    scoreboard.hidden =
+      !S.scoreboardVisible;
+  }
 
-  $('extra').textContent =
-    S.extraMinutes ? `+${S.extraMinutes}` : '';
+  const clock =
+    $('clock');
 
-  $('ticker').hidden =
-    !S.messageVisible;
+  if (clock) {
+    clock.textContent =
+      fmt(elapsed());
+  }
 
-  $('ticker').textContent =
-    S.message || '';
+  const extra =
+    $('extra');
 
-  /* PUBLICITÉ */
+  if (extra) {
+    extra.textContent =
+      S.extraMinutes
+        ? `+${S.extraMinutes}`
+        : '';
+  }
 
-  const a = S.ad || {};
-  const showAd = timed(a, 'ad');
+  const ticker =
+    $('ticker');
 
-  $('adOverlay').hidden = !showAd;
-  $('adImage').hidden = true;
-  $('adVideo').hidden = true;
+  if (ticker) {
+    ticker.hidden =
+      !S.messageVisible;
+
+    ticker.textContent =
+      S.message || '';
+  }
+
+  /* =========================
+     PUBLICITÉ
+  ========================= */
+
+  const a =
+    S.ad || {};
+
+  const showAd =
+    timed(a);
+
+  const adOverlay =
+    $('adOverlay');
+
+  const adImage =
+    $('adImage');
+
+  const adVideo =
+    $('adVideo');
+
+  if (adOverlay) {
+    adOverlay.hidden =
+      !showAd;
+  }
+
+  if (adImage) {
+    adImage.hidden = true;
+  }
+
+  if (adVideo) {
+    adVideo.hidden = true;
+  }
 
   $('adTitle').textContent =
     a.title || '';
@@ -428,47 +626,94 @@ function render() {
   $('adText').textContent =
     a.text || '';
 
-  if (a.kind === 'image' && a.image) {
-    $('adImage').src = a.image;
-    $('adImage').hidden = false;
+  if (
+    a.kind === 'image' &&
+    a.image &&
+    adImage
+  ) {
+    adImage.src =
+      a.image;
+
+    adImage.hidden =
+      false;
   }
 
-  if (a.kind === 'video' && a.video) {
-    const v = $('adVideo');
-
-    if (v.src !== location.origin + a.video) {
-      v.src = a.video;
+  if (
+    a.kind === 'video' &&
+    a.video &&
+    adVideo
+  ) {
+    if (
+      adVideo.src !==
+      location.origin +
+        a.video
+    ) {
+      adVideo.src =
+        a.video;
     }
 
-    v.hidden = false;
+    adVideo.hidden =
+      false;
   }
 
-  /* REPLAY */
+  /* =========================
+     REPLAY
+  ========================= */
 
-  const r = S.replay || {};
-  const showReplay = timed(r, 'replay');
+  const r =
+    S.replay || {};
 
-  $('replayOverlay').hidden =
-    !showReplay;
+  const showReplay =
+    timed(r);
 
-  if (showReplay && r.url) {
-    const v = $('replayVideo');
+  const replayOverlay =
+    $('replayOverlay');
 
-    if (v.src !== r.url) {
-      v.src = r.url;
-      v.playbackRate = Number(r.speed) || 1;
+  if (replayOverlay) {
+    replayOverlay.hidden =
+      !showReplay;
+  }
 
-      v.play().catch(() => {});
+  if (
+    showReplay &&
+    r.url
+  ) {
+    const v =
+      $('replayVideo');
+
+    if (
+      v &&
+      v.src !== r.url
+    ) {
+      v.src =
+        r.url;
+
+      v.playbackRate =
+        Number(r.speed) || 1;
+
+      v.play().catch(
+        () => {}
+      );
     }
   }
 
-  /* REMPLACEMENT */
+  /* =========================
+     REMPLACEMENT
+  ========================= */
 
-  const sub = S.substitution || {};
-  const showSub = timed(sub, 'substitution');
+  const sub =
+    S.substitution || {};
 
-  $('subOverlay').hidden =
-    !showSub;
+  const showSub =
+    timed(sub);
+
+  const subOverlay =
+    $('subOverlay');
+
+  if (subOverlay) {
+    subOverlay.hidden =
+      !showSub;
+  }
 
   $('subOutPhoto').src =
     sub.out?.photo || '';
@@ -488,9 +733,12 @@ function render() {
   $('subInNumber').textContent =
     sub.in?.number || '';
 
-  /* COMPOSITION */
+  /* =========================
+     COMPOSITION
+  ========================= */
 
-  const lineup = S.lineup || {};
+  const lineup =
+    S.lineup || {};
 
   $('lineupOverlay').hidden =
     !lineup.visible;
@@ -500,27 +748,37 @@ function render() {
       lineup.team === 'home'
         ? S.home.name
         : S.away.name
-    } (${lineup.formation || '4-3-3'})`;
+    } (${
+      lineup.formation ||
+      '4-3-3'
+    })`;
 
   const players =
-    Array.isArray(lineup.players)
+    Array.isArray(
+      lineup.players
+    )
       ? lineup.players
       : [];
 
   $('pitch').innerHTML =
     players
-      .map(x =>
-        `<div class="player">${escapeHtml(
-          typeof x === 'string'
-            ? x
-            : x?.name || 'Joueur'
-        )}</div>`
+      .map(
+        x =>
+          `<div class="player">${escapeHtml(
+            typeof x === 'string'
+              ? x
+              : x?.name ||
+                'Joueur'
+          )}</div>`
       )
       .join('');
 
-  /* AFFICHE */
+  /* =========================
+     AFFICHE
+  ========================= */
 
-  const poster = S.poster || {};
+  const poster =
+    S.poster || {};
 
   $('posterOverlay').hidden =
     !poster.visible;
@@ -528,9 +786,12 @@ function render() {
   $('posterImage').src =
     poster.image || '';
 
-  /* VAR */
+  /* =========================
+     VAR
+  ========================= */
 
-  const vr = S.var || {};
+  const vr =
+    S.var || {};
 
   $('varOverlay').hidden =
     !vr.visible;
@@ -541,49 +802,65 @@ function render() {
   $('varText').textContent =
     vr.text || '';
 
-  /* TIRS AU BUT */
+  /* =========================
+     TIRS AU BUT
+  ========================= */
 
-  const penalty = S.penalty || {};
+  const penalty =
+    S.penalty || {};
 
   $('penaltyOverlay').hidden =
     !penalty.visible;
 
   $('penaltyScore').textContent =
-    `${Number(penalty.home) || 0} - ${
-      Number(penalty.away) || 0
+    `${Number(
+      penalty.home
+    ) || 0} - ${
+      Number(
+        penalty.away
+      ) || 0
     }`;
 
-  /* CHRONOMÈTRE */
+  /* =========================
+     CHRONOMÈTRE
+  ========================= */
 
   clearInterval(clockTimer);
 
-  clockTimer = setInterval(() => {
-    if (!S) return;
+  clockTimer =
+    setInterval(() => {
+      if (!S) return;
 
-    $('clock').textContent =
-      fmt(elapsed());
+      $('clock').textContent =
+        fmt(elapsed());
 
-    $('extra').textContent =
-      S.extraMinutes
-        ? `+${S.extraMinutes}`
-        : '';
+      $('extra').textContent =
+        S.extraMinutes
+          ? `+${S.extraMinutes}`
+          : '';
 
-    renderTimed();
+      renderTimed();
 
-  }, 1000);
+    }, 1000);
 }
+
+/* =========================
+   PUBLICATIONS TEMPORISÉES
+========================= */
 
 function renderTimed() {
   if (!S) return;
 
   $('adOverlay').hidden =
-    !timed(S.ad, 'ad');
+    !timed(S.ad);
 
   $('replayOverlay').hidden =
-    !timed(S.replay, 'replay');
+    !timed(S.replay);
 
   $('subOverlay').hidden =
-    !timed(S.substitution, 'substitution');
+    !timed(
+      S.substitution
+    );
 }
 
 /* =========================
@@ -591,14 +868,17 @@ function renderTimed() {
 ========================= */
 
 function escapeHtml(s) {
-  return String(s ?? '').replace(
+  return String(
+    s ?? ''
+  ).replace(
     /[&<>"]/g,
-    c => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;'
-    }[c])
+    c =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;'
+      }[c])
   );
 }
 
@@ -608,18 +888,28 @@ function escapeHtml(s) {
 
 async function upload(file) {
   if (!file) {
-    throw new Error('Aucun fichier sélectionné.');
+    throw new Error(
+      'Aucun fichier sélectionné.'
+    );
   }
 
-  const fd = new FormData();
+  const fd =
+    new FormData();
 
-  fd.append('file', file);
+  fd.append(
+    'file',
+    file
+  );
 
   try {
-    const d = await api('/api/media', {
-      method: 'POST',
-      body: fd
-    });
+    const d =
+      await api(
+        '/api/media',
+        {
+          method: 'POST',
+          body: fd
+        }
+      );
 
     if (!d.url) {
       throw new Error(
@@ -650,7 +940,8 @@ function adminOpen() {
   }
 }
 
-$('adminButton').onclick = adminOpen;
+$('adminButton').onclick =
+  adminOpen;
 
 /* =========================
    CONNEXION
@@ -661,187 +952,268 @@ $('loginForm').addEventListener(
   async e => {
     e.preventDefault();
 
-    $('loginError').textContent = '';
+    $('loginError').textContent =
+      '';
 
     try {
-      const d = await api('/api/auth', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          password: $('password').value
-        })
-      });
+      const d =
+        await api(
+          '/api/auth',
+          {
+            method: 'POST',
 
-      if (!d.ok || !d.token) {
+            headers: {
+              'content-type':
+                'application/json'
+            },
+
+            body: JSON.stringify({
+              password:
+                $('password').value
+            })
+          }
+        );
+
+      if (
+        !d.ok ||
+        !d.token
+      ) {
         throw new Error(
-          d.error || 'Connexion Admin refusée.'
+          d.error ||
+          'Connexion Admin refusée.'
         );
       }
 
-      token = d.token;
+      token =
+        d.token;
 
       sessionStorage.setItem(
         'djibabouya-token',
         token
       );
 
-      $('password').value = '';
+      $('password').value =
+        '';
 
       $('login').close();
       $('admin').showModal();
 
-      showSuccess('Admin connecté.');
+      showSuccess(
+        'Admin connecté.'
+      );
 
     } catch (e) {
       $('loginError').textContent =
         e.message;
 
-      showError(e.message);
+      showError(
+        e.message
+      );
     }
   }
 );
 
-$('closeAdmin').onclick = () => {
-  $('admin').close();
-};
+$('closeAdmin').onclick =
+  () => {
+    $('admin').close();
+  };
 
 /* =========================
    ÉQUIPES
 ========================= */
 
-$('saveTeams').onclick = async () => {
-  try {
-    await publish(s => {
-      s.home.name =
-        $('homeInput').value || 'A';
+$('saveTeams').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.home.name =
+          $('homeInput').value ||
+          'A';
 
-      s.away.name =
-        $('awayInput').value || 'B';
+        s.away.name =
+          $('awayInput').value ||
+          'B';
 
-      s.status =
-        $('statusInput').value;
-    });
+        s.status =
+          $('statusInput').value;
+      });
 
-    showSuccess('Équipes mises à jour.');
-  } catch {}
-};
+      showSuccess(
+        'Équipes mises à jour.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    SCORE
 ========================= */
 
-$('homePlus').onclick = async () => {
-  try {
-    await publish(s => {
-      s.home.score++;
-    });
+$('homePlus').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.home.score =
+          Number(s.home.score) +
+          1;
+      });
 
-    showSuccess('Score A +1');
-  } catch {}
-};
+      showSuccess(
+        'Score A +1'
+      );
 
-$('homeMinus').onclick = async () => {
-  try {
-    await publish(s => {
-      s.home.score =
-        Math.max(0, s.home.score - 1);
-    });
+    } catch {}
+  };
 
-    showSuccess('Score A -1');
-  } catch {}
-};
+$('homeMinus').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.home.score =
+          Math.max(
+            0,
+            Number(
+              s.home.score
+            ) - 1
+          );
+      });
 
-$('awayPlus').onclick = async () => {
-  try {
-    await publish(s => {
-      s.away.score++;
-    });
+      showSuccess(
+        'Score A -1'
+      );
 
-    showSuccess('Score B +1');
-  } catch {}
-};
+    } catch {}
+  };
 
-$('awayMinus').onclick = async () => {
-  try {
-    await publish(s => {
-      s.away.score =
-        Math.max(0, s.away.score - 1);
-    });
+$('awayPlus').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.away.score =
+          Number(
+            s.away.score
+          ) + 1;
+      });
 
-    showSuccess('Score B -1');
-  } catch {}
-};
+      showSuccess(
+        'Score B +1'
+      );
+
+    } catch {}
+  };
+
+$('awayMinus').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.away.score =
+          Math.max(
+            0,
+            Number(
+              s.away.score
+            ) - 1
+          );
+      });
+
+      showSuccess(
+        'Score B -1'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    CHRONOMÈTRE
 ========================= */
 
-$('startClock').onclick = async () => {
-  try {
-    await publish(s => {
-      if (!s.running) {
-        s.running = true;
-        s.startedAt = Date.now();
-      }
-    });
+$('startClock').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        if (!s.running) {
+          s.running = true;
+          s.startedAt =
+            Date.now();
+        }
+      });
 
-    showSuccess('Chronomètre démarré.');
-  } catch {}
-};
+      showSuccess(
+        'Chronomètre démarré.'
+      );
 
-$('stopClock').onclick = async () => {
-  try {
-    await publish(s => {
-      if (s.running) {
-        s.elapsed += Math.floor(
-          (Date.now() - s.startedAt) / 1000
-        );
+    } catch {}
+  };
 
-        s.running = false;
+$('stopClock').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        if (s.running) {
+          s.elapsed +=
+            Math.floor(
+              (Date.now() -
+                s.startedAt) /
+                1000
+            );
+
+          s.running = false;
+          s.startedAt = 0;
+        }
+      });
+
+      showSuccess(
+        'Chronomètre en pause.'
+      );
+
+    } catch {}
+  };
+
+$('resetClock').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.elapsed = 0;
         s.startedAt = 0;
-      }
-    });
+        s.running = false;
+        s.extraElapsed = 0;
+        s.extraRunning = false;
+        s.extraStartedAt = 0;
+      });
 
-    showSuccess('Chronomètre en pause.');
-  } catch {}
-};
+      showSuccess(
+        'Chronomètre réinitialisé.'
+      );
 
-$('resetClock').onclick = async () => {
-  try {
-    await publish(s => {
-      s.elapsed = 0;
-      s.startedAt = 0;
-      s.running = false;
-      s.extraElapsed = 0;
-      s.extraRunning = false;
-      s.extraStartedAt = 0;
-    });
+    } catch {}
+  };
 
-    showSuccess('Chronomètre réinitialisé.');
-  } catch {}
-};
+$('saveExtra').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.extraMinutes =
+          Number(
+            $('extraInput').value
+          ) || 0;
+      });
 
-$('saveExtra').onclick = async () => {
-  try {
-    await publish(s => {
-      s.extraMinutes =
-        Number($('extraInput').value) || 0;
-    });
+      showSuccess(
+        'Temps additionnel publié.'
+      );
 
-    showSuccess('Temps additionnel publié.');
-  } catch {}
-};
+    } catch {}
+  };
 
-$('scoreVisible').onchange = async e => {
-  try {
-    await publish(s => {
-      s.scoreboardVisible =
-        e.target.checked;
-    });
-  } catch {}
-};
+$('scoreVisible').onchange =
+  async e => {
+    try {
+      await publish(s => {
+        s.scoreboardVisible =
+          e.target.checked;
+      });
+
+    } catch {}
+  };
 
 /* =========================
    ÉVÉNEMENTS
@@ -849,231 +1221,332 @@ $('scoreVisible').onchange = async e => {
 
 function eventData() {
   return {
-    player: $('eventPlayer').value,
+    player:
+      $('eventPlayer').value,
+
     minute:
-      Number($('eventMinute').value) || 0,
-    team: $('eventTeam').value,
-    createdAt: Date.now(),
-    id: crypto.randomUUID()
+      Number(
+        $('eventMinute').value
+      ) || 0,
+
+    team:
+      $('eventTeam').value,
+
+    createdAt:
+      Date.now(),
+
+    id:
+      crypto.randomUUID()
   };
 }
 
-$('goalBtn').onclick = async () => {
-  try {
-    await publish(s => {
-      const g = eventData();
+$('goalBtn').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        const g =
+          eventData();
 
-      s.goals.push(g);
+        s.goals.push(g);
 
-      s.events.push({
-        ...g,
-        type: 'goal'
-      });
-
-      s[g.team].score++;
-    });
-
-    showSuccess('But publié.');
-  } catch {}
-};
-
-document
-  .querySelectorAll('.cardBtn')
-  .forEach(b => {
-    b.onclick = async () => {
-      try {
-        await publish(s => {
-          const e = eventData();
-
-          s.cards.push({
-            ...e,
-            type: b.dataset.card
-          });
-
-          s.events.push({
-            ...e,
-            type: b.dataset.card
-          });
+        s.events.push({
+          ...g,
+          type: 'goal'
         });
 
-        showSuccess('Carton publié.');
-      } catch {}
-    };
+        s[g.team].score =
+          Number(
+            s[g.team].score
+          ) + 1;
+      });
+
+      showSuccess(
+        'But publié.'
+      );
+
+    } catch {}
+  };
+
+document
+  .querySelectorAll(
+    '.cardBtn'
+  )
+  .forEach(b => {
+    b.onclick =
+      async () => {
+        try {
+          await publish(s => {
+            const e =
+              eventData();
+
+            s.cards.push({
+              ...e,
+              type:
+                b.dataset.card
+            });
+
+            s.events.push({
+              ...e,
+              type:
+                b.dataset.card
+            });
+          });
+
+          showSuccess(
+            'Carton publié.'
+          );
+
+        } catch {}
+      };
   });
 
-$('halfBtn').onclick = async () => {
-  try {
-    await publish(s => {
-      s.status = 'MI-TEMPS';
-      s.running = false;
-      s.startedAt = 0;
-      s.period = 'MI-TEMPS';
-    });
+$('halfBtn').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.status =
+          'MI-TEMPS';
 
-    showSuccess('Mi-temps publiée.');
-  } catch {}
-};
+        s.running =
+          false;
 
-$('fullBtn').onclick = async () => {
-  try {
-    await publish(s => {
-      s.status = 'TERMINÉ';
-      s.running = false;
-      s.startedAt = 0;
-      s.period = 'FIN';
-    });
+        s.startedAt =
+          0;
 
-    showSuccess('Fin du match publiée.');
-  } catch {}
-};
+        s.period =
+          'MI-TEMPS';
+      });
 
-$('varBtn').onclick = async () => {
-  try {
-    await publish(s => {
-      s.var.visible = !s.var.visible;
-      s.var.title = 'VAR';
-      s.var.text =
-        s.var.visible
-          ? 'DÉCISION EN COURS'
-          : '';
+      showSuccess(
+        'Mi-temps publiée.'
+      );
 
-      s.var.publicationId =
-        crypto.randomUUID();
-    });
+    } catch {}
+  };
 
-    showSuccess(
-      S.var.visible
-        ? 'VAR affichée.'
-        : 'VAR retirée.'
-    );
-  } catch {}
-};
+$('fullBtn').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.status =
+          'TERMINÉ';
+
+        s.running =
+          false;
+
+        s.startedAt =
+          0;
+
+        s.period =
+          'FIN';
+      });
+
+      showSuccess(
+        'Fin du match publiée.'
+      );
+
+    } catch {}
+  };
+
+$('varBtn').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.var.visible =
+          !s.var.visible;
+
+        s.var.title =
+          'VAR';
+
+        s.var.text =
+          s.var.visible
+            ? 'DÉCISION EN COURS'
+            : '';
+
+        s.var.publicationId =
+          crypto.randomUUID();
+      });
+
+      showSuccess(
+        S.var.visible
+          ? 'VAR affichée.'
+          : 'VAR retirée.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    STATISTIQUES
 ========================= */
 
-$('saveStats').onclick = async () => {
-  try {
-    await publish(s => {
-      s.stats.possessionHome =
-        Number($('posH').value) || 0;
+$('saveStats').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.stats.possessionHome =
+          Number(
+            $('posH').value
+          ) || 0;
 
-      s.stats.possessionAway =
-        Number($('posA').value) || 0;
+        s.stats.possessionAway =
+          Number(
+            $('posA').value
+          ) || 0;
 
-      s.stats.shotsHome =
-        Number($('shotsH').value) || 0;
+        s.stats.shotsHome =
+          Number(
+            $('shotsH').value
+          ) || 0;
 
-      s.stats.shotsAway =
-        Number($('shotsA').value) || 0;
+        s.stats.shotsAway =
+          Number(
+            $('shotsA').value
+          ) || 0;
 
-      s.stats.cornersHome =
-        Number($('cornersH').value) || 0;
+        s.stats.cornersHome =
+          Number(
+            $('cornersH').value
+          ) || 0;
 
-      s.stats.cornersAway =
-        Number($('cornersA').value) || 0;
-    });
+        s.stats.cornersAway =
+          Number(
+            $('cornersA').value
+          ) || 0;
+      });
 
-    showSuccess('Statistiques publiées.');
-  } catch {}
-};
+      showSuccess(
+        'Statistiques publiées.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    MESSAGE
 ========================= */
 
-$('publishMessage').onclick = async () => {
-  try {
-    await publish(s => {
-      s.message =
-        $('messageInput').value;
+$('publishMessage').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.message =
+          $('messageInput').value;
 
-      s.messageVisible = true;
-    });
+        s.messageVisible =
+          true;
+      });
 
-    showSuccess('Message publié.');
-  } catch {}
-};
+      showSuccess(
+        'Message publié.'
+      );
 
-$('removeMessage').onclick = async () => {
-  try {
-    await publish(s => {
-      s.message = '';
-      s.messageVisible = false;
-    });
+    } catch {}
+  };
 
-    showSuccess('Message retiré.');
-  } catch {}
-};
+$('removeMessage').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.message = '';
+        s.messageVisible =
+          false;
+      });
+
+      showSuccess(
+        'Message retiré.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    PUBLICITÉ
 ========================= */
 
-$('publishAd').onclick = async () => {
-  try {
-    const f =
-      $('adFile').files[0];
+$('publishAd').onclick =
+  async () => {
+    try {
+      const f =
+        $('adFile').files[0];
 
-    const url =
-      f ? await upload(f) : '';
+      const url =
+        f
+          ? await upload(f)
+          : '';
 
-    await publish(s => {
-      s.ad = {
-        visible: true,
+      await publish(s => {
+        s.ad = {
+          visible: true,
 
-        kind:
-          f?.type.startsWith('video/')
-            ? 'video'
-            : f
-              ? 'image'
-              : 'text',
+          kind:
+            f?.type.startsWith(
+              'video/'
+            )
+              ? 'video'
+              : f
+                ? 'image'
+                : 'text',
 
-        title:
-          $('adTitleInput').value,
+          title:
+            $('adTitleInput')
+              .value,
 
-        text:
-          $('adTextInput').value,
+          text:
+            $('adTextInput')
+              .value,
 
-        image:
-          f &&
-          !f.type.startsWith('video/')
-            ? url
-            : '',
+          image:
+            f &&
+            !f.type.startsWith(
+              'video/'
+            )
+              ? url
+              : '',
 
-        video:
-          f &&
-          f.type.startsWith('video/')
-            ? url
-            : '',
+          video:
+            f &&
+            f.type.startsWith(
+              'video/'
+            )
+              ? url
+              : '',
 
-        startedAt:
-          Date.now(),
+          startedAt:
+            Date.now(),
 
-        duration:
-          Number(
-            $('adDurationInput').value
-          ) || 0,
+          duration:
+            Number(
+              $('adDurationInput')
+                .value
+            ) || 0,
 
-        publicationId:
-          crypto.randomUUID()
-      };
-    });
+          publicationId:
+            crypto.randomUUID()
+        };
+      });
 
-    showSuccess('Publicité publiée.');
-  } catch {}
-};
+      showSuccess(
+        'Publicité publiée.'
+      );
 
-$('stopAd').onclick = async () => {
-  try {
-    await publish(s => {
-      s.ad.visible = false;
-    });
+    } catch {}
+  };
 
-    showSuccess('Publicité retirée.');
-  } catch {}
-};
+$('stopAd').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.ad.visible =
+          false;
+      });
+
+      showSuccess(
+        'Publicité retirée.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    REPLAY
@@ -1084,22 +1557,28 @@ async function doReplay(slow) {
     'Création du clip…';
 
   try {
-    const d = await api(
-      '/api/live/replay',
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          before:
-            $('replayBefore').value,
+    const d =
+      await api(
+        '/api/live/replay',
+        {
+          method: 'POST',
 
-          after:
-            $('replayAfter').value
-        })
-      }
-    );
+          headers: {
+            'content-type':
+              'application/json'
+          },
+
+          body: JSON.stringify({
+            before:
+              $('replayBefore')
+                .value,
+
+            after:
+              $('replayAfter')
+                .value
+          })
+        }
+      );
 
     if (!d.url) {
       throw new Error(
@@ -1111,18 +1590,24 @@ async function doReplay(slow) {
       const speed =
         slow
           ? Number(
-              $('replaySpeed').value
+              $('replaySpeed')
+                .value
             ) || 0.5
           : 1;
 
       s.replay = {
         visible: true,
         url: d.url,
-        startedAt: Date.now(),
+        startedAt:
+          Date.now(),
 
         duration:
           d.duration *
-          (slow ? 1 / speed : 1),
+          (
+            slow
+              ? 1 / speed
+              : 1
+          ),
 
         speed,
 
@@ -1134,13 +1619,17 @@ async function doReplay(slow) {
     $('replayStatus').textContent =
       '✓ Replay publié instantanément';
 
-    showSuccess('Replay publié.');
+    showSuccess(
+      'Replay publié.'
+    );
 
   } catch (e) {
     $('replayStatus').textContent =
       '✕ ' + e.message;
 
-    showError(e.message);
+    showError(
+      e.message
+    );
   }
 }
 
@@ -1150,210 +1639,246 @@ $('liveReplay').onclick =
 $('liveSlow').onclick =
   () => doReplay(true);
 
-$('stopReplay').onclick = async () => {
-  try {
-    await publish(s => {
-      s.replay.visible = false;
-    });
+$('stopReplay').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.replay.visible =
+          false;
+      });
 
-    showSuccess('Replay retiré.');
-  } catch {}
-};
+      showSuccess(
+        'Replay retiré.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    REMPLACEMENT
 ========================= */
 
-$('publishSub').onclick = async () => {
-  try {
-    const out =
-      await upload(
-        $('subOutFile').files[0]
+$('publishSub').onclick =
+  async () => {
+    try {
+      const out =
+        await upload(
+          $('subOutFile')
+            .files[0]
+        );
+
+      const inn =
+        await upload(
+          $('subInFile')
+            .files[0]
+        );
+
+      await publish(s => {
+        s.substitution = {
+          visible: true,
+
+          out: {
+            name:
+              $('subOutName')
+                .value,
+
+            number:
+              $('subOutNumber')
+                .value,
+
+            photo: out
+          },
+
+          in: {
+            name:
+              $('subInName')
+                .value,
+
+            number:
+              $('subInNumber')
+                .value,
+
+            photo: inn
+          },
+
+          startedAt:
+            Date.now(),
+
+          duration: 12,
+
+          publicationId:
+            crypto.randomUUID()
+        };
+      });
+
+      showSuccess(
+        'Remplacement publié.'
       );
 
-    const inn =
-      await upload(
-        $('subInFile').files[0]
+    } catch {}
+  };
+
+$('stopSub').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.substitution.visible =
+          false;
+      });
+
+      showSuccess(
+        'Remplacement retiré.'
       );
 
-    await publish(s => {
-      s.substitution = {
-        visible: true,
-
-        out: {
-          name:
-            $('subOutName').value,
-
-          number:
-            $('subOutNumber').value,
-
-          photo: out
-        },
-
-        in: {
-          name:
-            $('subInName').value,
-
-          number:
-            $('subInNumber').value,
-
-          photo: inn
-        },
-
-        startedAt:
-          Date.now(),
-
-        duration: 12,
-
-        publicationId:
-          crypto.randomUUID()
-      };
-    });
-
-    showSuccess(
-      'Remplacement publié.'
-    );
-
-  } catch {}
-};
-
-$('stopSub').onclick = async () => {
-  try {
-    await publish(s => {
-      s.substitution.visible = false;
-    });
-
-    showSuccess(
-      'Remplacement retiré.'
-    );
-  } catch {}
-};
+    } catch {}
+  };
 
 /* =========================
    COMPOSITION
 ========================= */
 
-$('publishLineup').onclick = async () => {
-  try {
-    await publish(s => {
-      s.lineup = {
-        visible: true,
-        team: 'home',
+$('publishLineup').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.lineup = {
+          visible: true,
 
-        formation:
-          $('formation').value,
+          team: 'home',
 
-        players:
-          $('lineupPlayers')
-            .value
-            .split('\n')
-            .map(x => x.trim())
-            .filter(Boolean),
+          formation:
+            $('formation').value,
 
-        publicationId:
-          crypto.randomUUID()
-      };
-    });
+          players:
+            $('lineupPlayers')
+              .value
+              .split('\n')
+              .map(
+                x => x.trim()
+              )
+              .filter(Boolean),
 
-    showSuccess(
-      'Composition publiée.'
-    );
+          publicationId:
+            crypto.randomUUID()
+        };
+      });
 
-  } catch {}
-};
+      showSuccess(
+        'Composition publiée.'
+      );
 
-$('stopLineup').onclick = async () => {
-  try {
-    await publish(s => {
-      s.lineup.visible = false;
-    });
+    } catch {}
+  };
 
-    showSuccess(
-      'Composition retirée.'
-    );
-  } catch {}
-};
+$('stopLineup').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.lineup.visible =
+          false;
+      });
+
+      showSuccess(
+        'Composition retirée.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    AFFICHE
 ========================= */
 
-$('publishPoster').onclick = async () => {
-  try {
-    const file =
-      $('posterFile').files[0];
+$('publishPoster').onclick =
+  async () => {
+    try {
+      const file =
+        $('posterFile')
+          .files[0];
 
-    const u =
-      await upload(file);
+      const u =
+        await upload(file);
 
-    await publish(s => {
-      s.poster = {
-        visible: true,
-        image: u,
-        publicationId:
-          crypto.randomUUID()
-      };
-    });
+      await publish(s => {
+        s.poster = {
+          visible: true,
+          image: u,
 
-    showSuccess(
-      'Affiche publiée sur la TV.'
-    );
+          publicationId:
+            crypto.randomUUID()
+        };
+      });
 
-  } catch {}
-};
+      showSuccess(
+        'Affiche publiée sur la TV.'
+      );
 
-$('stopPoster').onclick = async () => {
-  try {
-    await publish(s => {
-      s.poster.visible = false;
-    });
+    } catch {}
+  };
 
-    showSuccess('Affiche retirée.');
-  } catch {}
-};
+$('stopPoster').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.poster.visible =
+          false;
+      });
+
+      showSuccess(
+        'Affiche retirée.'
+      );
+
+    } catch {}
+  };
 
 /* =========================
    FOND TV
 ========================= */
 
-$('changeBackground').onclick = async () => {
-  try {
-    const file =
-      $('backgroundFile').files[0];
+$('changeBackground').onclick =
+  async () => {
+    try {
+      const file =
+        $('backgroundFile')
+          .files[0];
 
-    const u =
-      await upload(file);
+      const u =
+        await upload(file);
 
-    await publish(s => {
-      s.background = u;
+      await publish(s => {
+        s.background =
+          u;
 
-      s.backgroundMode =
-        $('backgroundMode').value;
-    });
+        s.backgroundMode =
+          $('backgroundMode')
+            .value;
+      });
 
-    showSuccess(
-      'Fond TV changé.'
-    );
+      showSuccess(
+        'Fond TV changé.'
+      );
 
-  } catch {}
-};
+    } catch {}
+  };
 
-$('removeBackground').onclick = async () => {
-  try {
-    await publish(s => {
-      s.background =
-        '/default-background.jpg';
+$('removeBackground').onclick =
+  async () => {
+    try {
+      await publish(s => {
+        s.background =
+          '/default-background.jpg';
 
-      s.backgroundMode =
-        $('backgroundMode').value;
-    });
+        s.backgroundMode =
+          $('backgroundMode')
+            .value;
+      });
 
-    showSuccess(
-      'Fond DJIBABOUYA restauré.'
-    );
+      showSuccess(
+        'Fond DJIBABOUYA restauré.'
+      );
 
-  } catch {}
-};
+    } catch {}
+  };
 
 $('backgroundMode').onchange =
   async e => {
@@ -1390,7 +1915,8 @@ $('createLiveInput').onclick =
 
             body: JSON.stringify({
               name:
-                $('liveName').value
+                $('liveName')
+                  .value
             })
           }
         );
@@ -1401,13 +1927,21 @@ $('createLiveInput').onclick =
         );
       }
 
-      $('liveCredentials').textContent =
+      $('liveCredentials')
+        .textContent =
         JSON.stringify(
           {
-            uid: d.input.uid,
-            rtmps: d.input.rtmps,
-            srt: d.input.srt,
-            webRTC: d.input.webRTC
+            uid:
+              d.input.uid,
+
+            rtmps:
+              d.input.rtmps,
+
+            srt:
+              d.input.srt,
+
+            webRTC:
+              d.input.webRTC
           },
           null,
           2
@@ -1418,10 +1952,14 @@ $('createLiveInput').onclick =
       );
 
     } catch (e) {
-      $('liveCredentials').textContent =
-        'Erreur : ' + e.message;
+      $('liveCredentials')
+        .textContent =
+        'Erreur : ' +
+        e.message;
 
-      showError(e.message);
+      showError(
+        e.message
+      );
     }
   };
 
@@ -1433,7 +1971,8 @@ $('checkLive').onclick =
           '/api/live/status'
         );
 
-      $('liveCredentials').textContent =
+      $('liveCredentials')
+        .textContent =
         JSON.stringify(
           d,
           null,
@@ -1450,23 +1989,31 @@ $('checkLive').onclick =
       S.live = {
         enabled: true,
         hls: d.hls,
-        videoId: d.videoId,
-        inputId: d.inputId
+        videoId:
+          d.videoId,
+        inputId:
+          d.inputId
       };
 
       render();
 
-      playLive(d.hls);
+      playLive(
+        d.hls
+      );
 
       showSuccess(
         'Direct Cloudflare actif.'
       );
 
     } catch (e) {
-      $('liveCredentials').textContent =
-        'Erreur : ' + e.message;
+      $('liveCredentials')
+        .textContent =
+        'Erreur : ' +
+        e.message;
 
-      showError(e.message);
+      showError(
+        e.message
+      );
     }
   };
 
@@ -1475,20 +2022,31 @@ $('checkLive').onclick =
 ========================= */
 
 function playLive(hls) {
-  const v = $('liveVideo');
+  const v =
+    $('liveVideo');
 
-  if (!hls || !v) return;
+  if (
+    !hls ||
+    !v
+  ) {
+    return;
+  }
 
   if (
     v.canPlayType(
       'application/vnd.apple.mpegurl'
     )
   ) {
-    if (v.src !== hls) {
+    if (
+      v.src !== hls
+    ) {
       v.src = hls;
     }
 
-    v.play().catch(() => {});
+    v.play().catch(
+      () => {}
+    );
+
   } else {
     $('liveHint').innerHTML =
       'DIRECT ACTIF<br><small>' +
@@ -1504,19 +2062,29 @@ function playLive(hls) {
 async function refreshLive() {
   try {
     const d =
-      await api('/api/live/status');
+      await api(
+        '/api/live/status'
+      );
 
-    if (d.ok && d.hls) {
-      playLive(d.hls);
+    if (
+      d.ok &&
+      d.hls
+    ) {
+      playLive(
+        d.hls
+      );
 
-      $('liveHint').style.display =
+      $('liveHint')
+        .style.display =
         'none';
     }
+
   } catch {
     /*
-     * Pas d'alerte ici :
-     * l'absence temporaire du live
-     * ne doit pas afficher une erreur
+     * Pas d'alerte :
+     * l'absence temporaire
+     * du live ne doit pas
+     * afficher une erreur
      * toutes les 10 secondes.
      */
   }
